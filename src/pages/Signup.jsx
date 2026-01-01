@@ -1,5 +1,6 @@
 import { useState } from "react";
 import { Link, useNavigate } from "react-router-dom";
+import { getUsers, createUser } from "../api";
 
 export default function Signup() {
   const [username, setUsername] = useState("");
@@ -14,20 +15,25 @@ export default function Signup() {
 
   const navigate = useNavigate();
 
-  function checkUsername(value) {
+  // 🔍 CHECK USERNAME VIA API
+  async function checkUsername(value) {
     setUsername(value);
     setError("");
 
-    const users =
-      JSON.parse(localStorage.getItem("users")) || [];
+    if (!value) {
+      setAvailable(null);
+      return;
+    }
 
-    const exists = users.find(u => u.username === value);
+    const users = await getUsers();
+    const exists = users.find(
+      u => u.username === value
+    );
 
-    if (!value) setAvailable(null);
-    else setAvailable(!exists);
+    setAvailable(!exists);
   }
 
-  function handleSignup(e) {
+  async function handleSignup(e) {
     e.preventDefault();
 
     if (!username || !password || !confirmPassword) {
@@ -45,11 +51,11 @@ export default function Signup() {
       return;
     }
 
-    const users =
-      JSON.parse(localStorage.getItem("users")) || [];
-
-    users.push({ username, password });
-    localStorage.setItem("users", JSON.stringify(users));
+    // ✅ SAVE USER TO DB.JSON
+    await createUser({
+      username,
+      password
+    });
 
     navigate("/login");
   }
@@ -63,36 +69,50 @@ export default function Signup() {
           type="text"
           placeholder="Username"
           value={username}
-          onChange={(e) => checkUsername(e.target.value)}
+          onChange={(e) =>
+            checkUsername(e.target.value)
+          }
         />
 
         {available === true && (
-          <p className="success">Username available ✓</p>
+          <p className="success">
+            Username available ✓
+          </p>
         )}
         {available === false && (
-          <p className="error">Username already taken</p>
+          <p className="error">
+            Username already taken
+          </p>
         )}
 
-        {/* PASSWORD TOGGLE */}
+        {/* PASSWORD */}
         <div className="password-field">
           <input
             type={showPassword ? "text" : "password"}
             placeholder="Password"
             value={password}
-            onChange={(e) => setPassword(e.target.value)}
+            onChange={(e) =>
+              setPassword(e.target.value)
+            }
           />
           <span
             className="eye"
-            onClick={() => setShowPassword(!showPassword)}
+            onClick={() =>
+              setShowPassword(!showPassword)
+            }
           >
             {showPassword ? "🙈" : "👁️"}
           </span>
         </div>
 
-        {/* CONFIRM PASSWORD TOGGLE */}
+        {/* CONFIRM PASSWORD */}
         <div className="password-field">
           <input
-            type={showConfirmPassword ? "text" : "password"}
+            type={
+              showConfirmPassword
+                ? "text"
+                : "password"
+            }
             placeholder="Re-enter Password"
             value={confirmPassword}
             onChange={(e) =>
@@ -102,14 +122,18 @@ export default function Signup() {
           <span
             className="eye"
             onClick={() =>
-              setShowConfirmPassword(!showConfirmPassword)
+              setShowConfirmPassword(
+                !showConfirmPassword
+              )
             }
           >
             {showConfirmPassword ? "🙈" : "👁️"}
           </span>
         </div>
 
-        {error && <p className="error">{error}</p>}
+        {error && (
+          <p className="error">{error}</p>
+        )}
 
         <button>Create Account</button>
 

@@ -1,218 +1,285 @@
 import { useState, useEffect } from "react";
 import CommentActions from "./CommentActions";
+import {
+  getCommentsByPost,
+  createComment,
+  updateComment,
+  deleteComment,
+  createNotification
+} from "../api";
+
+function updateRepliesTree(replies, targetId, updater, capture) {
+  return replies.map(r => {
+    if (r.id === targetId) {
+      capture && capture(r);
+      return updater({
+        ...r,
+        replies: r.replies || []
+      });
+    }
+    return {
+      ...r,
+      replies: updateRepliesTree(
+        r.replies || [],
+        targetId,
+        updater,
+        capture
+      )
+    };
+  });
+}
+
+function removeReplyTree(replies, targetId) {
+  return replies
+    .filter(r => r.id !== targetId)
+    .map(r => ({
+      ...r,
+      replies: removeReplyTree(r.replies || [], targetId)
+    }));
+}
 
 export default function CommentsPanel({ meme, onClose }) {
   const [comment, setComment] = useState("");
   const [comments, setComments] = useState([]);
 
   const user = JSON.parse(localStorage.getItem("user"));
+  const username = user?.username;
 
   useEffect(() => {
-    if (!meme) return;
-    const saved =
-      JSON.parse(
-        localStorage.getItem(`comments-${meme.url}`)
-      ) || [];
-    setComments(saved);
+    if (!meme?.id) return;
+    async function load() {
+      const data = await getCommentsByPost(meme.id);
+      setComments(data);
+    }
+    load();
   }, [meme]);
 
-  function save(updated) {
-    setComments(updated);
-    localStorage.setItem(
-      `comments-${meme.url}`,
-      JSON.stringify(updated)
-    );
+  async function notify(to, type, commentId) {
+    if (!to || to === username) return;
+    await createNotification({
+      to,
+      from: username,
+      type,
+      postId: meme.id,
+      commentId,
+      read: false,
+      time: Date.now()
+    });
   }
 
-  function addComment() {
+  async function addComment() {
     if (!comment.trim()) return;
-
-    save([
-      ...comments,
-      {
-        id: Date.now(),
-        username: user?.username || "anonymous",
-        text: comment,
-        likes: 0,
-        replies: []
-      }
-    ]);
-
+    const created = await createComment({
+      postId: meme.id,
+      username,
+      text: comment,
+      likes: [],
+      replies: []
+    });
+    setComments(prev => [...prev, created]);
     setComment("");
   }
 
-  function likeById(list, id) {
-    return list.map(c =>
-      c.id === id
-        ? { ...c, likes: c.likes + 1 }
-        : {
-            ...c,
-            replies: likeById(c.replies, id)
-          }
+  async function toggleLike(c) {
+    const hasLiked = c.likes.includes(username);
+    const likes = hasLiked
+      ? c.likes.filter(u => u !== username)
+      : [...c.likes, username];
+
+    await updateComment(c.id, { likes });
+
+    setComments(prev =>
+      prev.map(x =>
+        x.id === c.id ? { ...x, likes } : x
+      )
     );
+
+    if (!hasLiked) await notify(c.username, "like", c.id);
   }
 
-  function replyById(list, id, text) {
-    return list.map(c =>
-      c.id === id
-        ? {
-            ...c,
-            replies: [
-              ...c.replies,
-              {
-                id: Date.now(),
-                username:
-                  user?.username || "anonymous",
-                text,
-                likes: 0,
-                replies: []
-              }
-            ]
-          }
-        : {
-            ...c,
-            replies: replyById(c.replies, id, text)
-          }
-    );
+  async function addReply(rootId, parentId, text) {
+    const newReply = {
+      id: Date.now(),
+      username,
+      text,
+      likes: [],
+      replies: []
+    };
+
+    let targetUser = null;
+
+    const updated = comments.map(c => {
+      if (c.id !== rootId) return c;
+
+      if (parentId === rootId) {
+        targetUser = c.username;
+        return {
+          ...c,
+          replies: [...c.replies, newReply]
+        };
+      }
+
+      const replies = updateRepliesTree(
+        c.replies,
+        parentId,
+        r => ({
+          ...r,
+          replies: [...r.replies, newReply]
+        }),
+        r => (targetUser = r.username)
+      );
+
+      return { ...c, replies };
+    });
+
+    setComments(updated);
+    await updateComment(rootId, {
+      replies: updated.find(c => c.id === rootId).replies
+    });
+
+    await notify(targetUser, "reply", rootId);
   }
 
-  function deleteById(list, id) {
-    return list
-      .filter(c => c.id !== id)
-      .map(c => ({
-        ...c,
-        replies: deleteById(c.replies, id)
-      }));
+  async function likeReply(rootId, replyId) {
+    let targetUser = null;
+
+    const updated = comments.map(c => {
+      if (c.id !== rootId) return c;
+
+      const replies = updateRepliesTree(
+        c.replies,
+        replyId,
+        r => {
+          const hasLiked = r.likes.includes(username);
+          if (!hasLiked) targetUser = r.username;
+          return {
+            ...r,
+            likes: hasLiked
+              ? r.likes.filter(u => u !== username)
+              : [...r.likes, username]
+          };
+        }
+      );
+
+      return { ...c, replies };
+    });
+
+    setComments(updated);
+    await updateComment(rootId, {
+      replies: updated.find(c => c.id === rootId).replies
+    });
+
+    await notify(targetUser, "like", rootId);
+  }
+
+  async function deleteReply(rootId, replyId) {
+    const updated = comments.map(c =>
+      c.id === rootId
+        ? { ...c, replies: removeReplyTree(c.replies, replyId) }
+        : c
+    );
+    setComments(updated);
+    await updateComment(rootId, {
+      replies: updated.find(c => c.id === rootId).replies
+    });
+  }
+
+  async function removeComment(id) {
+    await deleteComment(id);
+    setComments(prev => prev.filter(c => c.id !== id));
+  }
+
+  function CommentItem({ comment, rootId }) {
+    const [replying, setReplying] = useState(false);
+    const [replyText, setReplyText] = useState("");
+
+    const hasLiked = comment.likes.includes(username);
+
+    return (
+      <div className="comment">
+        <span className="comment-user">@{comment.username}</span>
+        <span className="comment-text">{comment.text}</span>
+
+        <CommentActions
+          likes={comment.likes.length}
+          isLiked={hasLiked}
+          isOwner={comment.username === username}
+          onLike={() =>
+            comment.id === rootId
+              ? toggleLike(comment)
+              : likeReply(rootId, comment.id)
+          }
+          onReplyToggle={() => setReplying(!replying)}
+          onDelete={() =>
+            comment.id === rootId
+              ? removeComment(rootId)
+              : deleteReply(rootId, comment.id)
+          }
+        />
+
+        {replying && (
+          <div className="reply-input">
+            <input
+              value={replyText}
+              onChange={e => setReplyText(e.target.value)}
+              placeholder="Write a reply..."
+            />
+            <button
+              onClick={() => {
+                if (!replyText.trim()) return;
+                addReply(rootId, comment.id, replyText);
+                setReplyText("");
+                setReplying(false);
+              }}
+            >
+              Post
+            </button>
+          </div>
+        )}
+
+        {comment.replies?.map(r => (
+          <CommentItem
+            key={r.id}
+            comment={r}
+            rootId={rootId}
+          />
+        ))}
+      </div>
+    );
   }
 
   if (!meme) return null;
 
   return (
     <div className="comments-panel">
-      {/* HEADER */}
       <div className="comments-header">
         <span>Comments</span>
         <button onClick={onClose}>✖</button>
       </div>
 
-      {/* 📝 POST CAPTION */}
       <div className="post-caption">
-        <span className="comment-user">
-          @post
-        </span>
-        <span className="comment-text">
-          {meme.title}
-        </span>
+        <span className="comment-user">@post</span>
+        <span className="comment-text">{meme.title}</span>
       </div>
 
       <div className="comments-body">
-        {comments.length === 0 && (
-          <p className="no-comments">
-            No comments yet 👀
-          </p>
-        )}
-
         {comments.map(c => (
           <CommentItem
             key={c.id}
             comment={c}
-            currentUser={user?.username}
-            onLike={id =>
-              save(likeById(comments, id))
-            }
-            onReply={(id, text) =>
-              save(replyById(comments, id, text))
-            }
-            onDelete={id =>
-              save(deleteById(comments, id))
-            }
+            rootId={c.id}
           />
         ))}
       </div>
 
       <div className="comments-input">
         <input
-          placeholder="Add a comment..."
           value={comment}
-          onChange={e =>
-            setComment(e.target.value)
-          }
+          onChange={e => setComment(e.target.value)}
+          placeholder="Add a comment..."
         />
-        <button onClick={addComment}>
-          Post
-        </button>
+        <button onClick={addComment}>Post</button>
       </div>
-    </div>
-  );
-}
-
-/* 🔹 SINGLE COMMENT (RECURSIVE) */
-function CommentItem({
-  comment,
-  currentUser,
-  onLike,
-  onReply,
-  onDelete
-}) {
-  const [replying, setReplying] = useState(false);
-  const [replyText, setReplyText] = useState("");
-
-  return (
-    <div className="comment">
-      <span className="comment-user">
-        @{comment.username}
-      </span>
-
-      <span className="comment-text">
-        {comment.text}
-      </span>
-
-      <CommentActions
-        commentId={comment.id}
-        likes={comment.likes}
-        isOwner={
-          comment.username === currentUser
-        }
-        onLike={onLike}
-        onReplyToggle={() =>
-          setReplying(!replying)
-        }
-        onDelete={onDelete}
-      />
-
-      {replying && (
-        <div className="reply-input">
-          <input
-            placeholder="Write a reply..."
-            value={replyText}
-            onChange={e =>
-              setReplyText(e.target.value)
-            }
-          />
-          <button
-            onClick={() => {
-              if (!replyText.trim()) return;
-              onReply(comment.id, replyText);
-              setReplyText("");
-              setReplying(false);
-            }}
-          >
-            Post
-          </button>
-        </div>
-      )}
-
-      {comment.replies.map(r => (
-        <div key={r.id} className="reply">
-          <CommentItem
-            comment={r}
-            currentUser={currentUser}
-            onLike={onLike}
-            onReply={onReply}
-            onDelete={onDelete}
-          />
-        </div>
-      ))}
     </div>
   );
 }

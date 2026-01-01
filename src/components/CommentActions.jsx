@@ -1,6 +1,7 @@
 export default function CommentActions({
   commentId,
   likes,
+  isLiked,
   isOwner,
   onLike,
   onReplyToggle,
@@ -10,15 +11,13 @@ export default function CommentActions({
     const ok = window.confirm(
       "Are you sure you want to delete this comment?"
     );
-    if (ok) {
-      onDelete(commentId);
-    }
+    if (ok) onDelete(commentId);
   }
 
   return (
     <div className="comment-actions">
       <button onClick={() => onLike(commentId)}>
-        ❤️ {likes}
+        {isLiked ? "❤️" : "🤍"} {likes}
       </button>
 
       <button onClick={onReplyToggle}>

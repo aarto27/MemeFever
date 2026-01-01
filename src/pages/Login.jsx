@@ -1,5 +1,6 @@
 import { useState } from "react";
 import { Link, useNavigate } from "react-router-dom";
+import { getUsers } from "../api";
 
 export default function Login({ setUser }) {
   const [username, setUsername] = useState("");
@@ -9,14 +10,15 @@ export default function Login({ setUser }) {
 
   const navigate = useNavigate();
 
-  function handleLogin(e) {
+  async function handleLogin(e) {
     e.preventDefault();
 
-    const users =
-      JSON.parse(localStorage.getItem("users")) || [];
+    const users = await getUsers();
 
     const found = users.find(
-      u => u.username === username && u.password === password
+      u =>
+        u.username === username &&
+        u.password === password
     );
 
     if (!found) {
@@ -24,9 +26,14 @@ export default function Login({ setUser }) {
       return;
     }
 
+    // ✅ STORE ONLY LOGGED-IN USER
     const user = { username };
-    localStorage.setItem("user", JSON.stringify(user));
+    localStorage.setItem(
+      "user",
+      JSON.stringify(user)
+    );
     setUser(user);
+
     navigate("/");
   }
 
@@ -45,7 +52,7 @@ export default function Login({ setUser }) {
           }}
         />
 
-        {/* PASSWORD TOGGLE RESTORED */}
+        {/* PASSWORD */}
         <div className="password-field">
           <input
             type={showPassword ? "text" : "password"}
@@ -58,13 +65,17 @@ export default function Login({ setUser }) {
           />
           <span
             className="eye"
-            onClick={() => setShowPassword(!showPassword)}
+            onClick={() =>
+              setShowPassword(!showPassword)
+            }
           >
             {showPassword ? "🙈" : "👁️"}
           </span>
         </div>
 
-        {error && <p className="error">{error}</p>}
+        {error && (
+          <p className="error">{error}</p>
+        )}
 
         <button>Log In</button>
 

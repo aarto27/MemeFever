@@ -1,5 +1,9 @@
-import { Routes, Route, Navigate } from "react-router-dom";
 import { useState } from "react";
+import {
+  Routes,
+  Route,
+  useLocation
+} from "react-router-dom";
 
 import Header from "./components/Header";
 import MemeFeed from "./MemeFeed";
@@ -7,24 +11,33 @@ import Login from "./pages/Login";
 import Signup from "./pages/Signup";
 
 export default function App() {
+  const location = useLocation();
+
   const [user, setUser] = useState(
     JSON.parse(localStorage.getItem("user"))
   );
 
+ 
+  const openPostId =
+    location.state?.openPostId || null;
+
   return (
     <>
-      {/* Pass setUser to Header so it can clear the app state on logout */}
-      {user && <Header setUser={setUser} />}
+      <Header user={user} setUser={setUser} />
 
       <Routes>
         <Route
           path="/"
-          element={user ? <MemeFeed /> : <Navigate to="/login" />}
+          element={
+            <MemeFeed openPostId={openPostId} />
+          }
         />
+
         <Route
           path="/login"
           element={<Login setUser={setUser} />}
         />
+
         <Route
           path="/signup"
           element={<Signup />}
