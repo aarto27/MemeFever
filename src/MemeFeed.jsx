@@ -1,9 +1,22 @@
 import { useEffect, useState, useRef } from "react";
 import MemeCard from "./components/MemeCard";
 import Loader from "./components/Loader";
+import CreatePost from "./components/CreatePost";
 import { getPosts, createPost } from "./api";
 
-export default function MemeFeed({ openPostId }) {
+function sortPosts(posts) {
+  return [...posts].sort((a, b) => {
+    if (a.type === "upload" && b.type !== "upload") return -1;
+    if (a.type !== "upload" && b.type === "upload") return 1;
+    return (b.createdAt || 0) - (a.createdAt || 0);
+  });
+}
+
+export default function MemeFeed({
+  openPostId,
+  showUpload,
+  closeUpload
+}) {
   const [posts, setPosts] = useState([]);
   const [loading, setLoading] = useState(false);
 
@@ -11,10 +24,13 @@ export default function MemeFeed({ openPostId }) {
   const seenUrls = useRef(new Set());
   const imgflipMemes = useRef([]);
 
-  /* ---------------- IMGFLIP ---------------- */
+  async function reloadPosts() {
+    const all = await getPosts();
+    setPosts(sortPosts(all));
+  }
+
   async function loadImgflip() {
     if (imgflipMemes.current.length) return;
-
     const res = await fetch(
       "https://api.imgflip.com/get_memes"
     );
@@ -39,18 +55,18 @@ export default function MemeFeed({ openPostId }) {
     );
 
     if (seenUrls.current.has(meme.url)) return null;
-
     seenUrls.current.add(meme.url);
 
     return {
+      type: "meme",
       title: meme.name,
       url: meme.url,
       subreddit: "imgflip",
-      likes: []
+      likes: [],
+      createdAt: Date.now()
     };
   }
 
-  /* ---------------- REDDIT ---------------- */
   async function getRedditMeme() {
     try {
       const res = await fetch(
@@ -64,17 +80,18 @@ export default function MemeFeed({ openPostId }) {
       seenUrls.current.add(data.url);
 
       return {
+        type: "meme",
         title: data.title,
         url: data.url,
         subreddit: data.subreddit,
-        likes: []
+        likes: [],
+        createdAt: Date.now()
       };
     } catch {
       return null;
     }
   }
 
-  /* ---------------- LOAD SINGLE POST ---------------- */
   async function loadMeme() {
     if (loadingRef.current) return;
 
@@ -89,29 +106,26 @@ export default function MemeFeed({ openPostId }) {
           ? getImgflipMeme()
           : await getRedditMeme();
 
-      if (!meme) meme = await getRedditMeme();
       if (!meme) return;
 
       const created = await createPost(meme);
+
       setPosts(prev => [...prev, created]);
-    } catch (err) {
-      console.error(err);
     } finally {
       loadingRef.current = false;
       setLoading(false);
     }
   }
 
-  /* ---------------- INITIAL LOAD ---------------- */
   useEffect(() => {
     async function init() {
       const existing = await getPosts();
 
-      existing.forEach(p =>
-        seenUrls.current.add(p.url)
+      existing.forEach(
+        p => p.url && seenUrls.current.add(p.url)
       );
 
-      setPosts(existing);
+      setPosts(sortPosts(existing));
 
       if (existing.length < 5) {
         for (let i = 0; i < 5; i++) {
@@ -123,7 +137,6 @@ export default function MemeFeed({ openPostId }) {
     init();
   }, []);
 
-  /* ✅ ENSURE POST EXISTS WHEN OPENING FROM NOTIFICATION */
   useEffect(() => {
     if (!openPostId) return;
 
@@ -139,14 +152,16 @@ export default function MemeFeed({ openPostId }) {
       );
 
       if (target) {
-        setPosts(prev => [target, ...prev]);
+        setPosts(prev =>
+          sortPosts([target, ...prev])
+        );
       }
     }
 
     ensurePost();
   }, [openPostId, posts]);
 
-  /* ---------------- INFINITE SCROLL ---------------- */
+
   useEffect(() => {
     function onScroll() {
       if (
@@ -164,6 +179,12 @@ export default function MemeFeed({ openPostId }) {
 
   return (
     <main className="app">
+      <CreatePost
+        open={showUpload}
+        onClose={closeUpload}
+        onPostCreated={reloadPosts}
+      />
+
       {posts.map(post => (
         <MemeCard
           key={post.id}

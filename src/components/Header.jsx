@@ -5,17 +5,20 @@ import {
   markNotificationRead
 } from "../api";
 
-export default function Header({ user, setUser }) {
+export default function Header({ user, setUser, onUpload }) {
   const [notifications, setNotifications] = useState([]);
-  const [open, setOpen] = useState(false);
+  const [openNotif, setOpenNotif] = useState(false);
 
   const navigate = useNavigate();
+  const isAdmin = user?.role === "admin";
 
   useEffect(() => {
     if (!user?.username) return;
 
     async function load() {
-      const data = await getNotificationsForUser(user.username);
+      const data = await getNotificationsForUser(
+        user.username
+      );
       setNotifications(data);
     }
 
@@ -35,12 +38,10 @@ export default function Header({ user, setUser }) {
       prev.filter(x => x.id !== n.id)
     );
 
-    setOpen(false);
+    setOpenNotif(false);
 
     navigate("/", {
-      state: {
-        openPostId: n.postId
-      }
+      state: { openPostId: n.postId }
     });
   }
 
@@ -53,7 +54,13 @@ export default function Header({ user, setUser }) {
   return (
     <header className="ig-header">
       <div className="ig-header-inner">
-        <h1 className="logo">MemeVerse</h1>
+      
+        <h1
+          className="logo"
+          onClick={() => navigate("/")}
+        >
+          MemeVerse
+        </h1>
 
         {user && (
           <div className="header-right">
@@ -61,10 +68,33 @@ export default function Header({ user, setUser }) {
               @{user.username}
             </span>
 
+         
+            <button
+              className="upload-btn"
+              onClick={onUpload}
+            >
+              ＋ Upload
+            </button>
+
+           
+            {isAdmin && (
+              <button
+                className="admin-btn"
+                onClick={() =>
+                  navigate("/admin")
+                }
+              >
+                Admin
+              </button>
+            )}
+
+          
             <div className="notification-wrap">
               <button
                 className="bell"
-                onClick={() => setOpen(!open)}
+                onClick={() =>
+                  setOpenNotif(!openNotif)
+                }
               >
                 🔔
                 {notifications.length > 0 && (
@@ -74,7 +104,7 @@ export default function Header({ user, setUser }) {
                 )}
               </button>
 
-              {open && (
+              {openNotif && (
                 <div className="notification-modal">
                   <h4>Notifications</h4>
 
@@ -100,6 +130,7 @@ export default function Header({ user, setUser }) {
               )}
             </div>
 
+          
             <button
               className="logout-btn"
               onClick={logout}
